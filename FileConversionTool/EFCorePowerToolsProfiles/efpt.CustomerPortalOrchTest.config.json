@@ -1,0 +1,90 @@
+﻿{
+   "CodeGenerationMode": 4,
+   "ContextClassName": "CustomerPortalOrchTestContext",
+   "ContextNamespace": null,
+   "FilterSchemas": false,
+   "IncludeConnectionString": false,
+   "IrregularWords": null,
+   "MinimumProductVersion": "2.6.1465",
+   "ModelNamespace": null,
+   "OutputContextPath": null,
+   "OutputPath": "DF\/CustomerPortalOrchTest",
+   "PluralRules": null,
+   "PreserveCasingWithRegex": true,
+   "ProjectRootNamespace": "PMC.Data",
+   "Schemas": null,
+   "SelectedHandlebarsLanguage": 2,
+   "SelectedToBeGenerated": 0,
+   "SingularRules": null,
+   "T4TemplatePath": null,
+   "Tables": [
+      {
+         "Name": "[ResourcesInfo].[Links]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceCategories]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceCategoryTypes]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceDownloads]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceDownloadsXTags]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceFolders]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceLinks]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceTags]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceTagTypes]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[ResourcesInfo].[ResourceThumbnails]",
+         "ObjectType": 0
+      }
+   ],
+   "UiHint": null,
+   "UncountableWords": null,
+   "UseAsyncStoredProcedureCalls": false,
+   "UseBoolPropertiesWithoutDefaultSql": false,
+   "UseDatabaseNames": true,
+   "UseDatabaseNamesForRoutines": true,
+   "UseDateOnlyTimeOnly": true,
+   "UseDbContextSplitting": false,
+   "UseDecimalDataAnnotationForSprocResult": true,
+   "UseFluentApiOnly": true,
+   "UseHandleBars": false,
+   "UseHierarchyId": false,
+   "UseInflector": true,
+   "UseInternalAccessModifiersForSprocsAndFunctions": false,
+   "UseLegacyPluralizer": false,
+   "UseManyToManyEntity": false,
+   "UseNoDefaultConstructor": false,
+   "UseNoNavigations": false,
+   "UseNoObjectFilter": false,
+   "UseNodaTime": false,
+   "UseNullableReferences": true,
+   "UsePrefixNavigationNaming": false,
+   "UseSchemaFolders": false,
+   "UseSchemaNamespaces": false,
+   "UseSpatial": false,
+   "UseT4": false,
+   "UseT4Split": false,
+   "UseTypedTvpParameters": true
+}
