@@ -20,10 +20,8 @@ string testConnStr = config["TestDatabase:ConnectionString"]
 string prodConnStr = config["ProductionDatabase:ConnectionString"]
     ?? throw new InvalidOperationException("ProductionDatabase:ConnectionString is required.");
 
-string testDriveLetter = config["Storage:TestDriveLetter"]     ?? "T";
-string testNetworkBase = config["Storage:TestNetworkBasePath"] ?? "";
-string prodDriveLetter = config["Storage:ProdDriveLetter"]     ?? "P";
-string prodNetworkBase = config["Storage:ProdNetworkBasePath"] ?? "";
+string testDriveLetter = config["Storage:TestDriveLetter"]?? throw new InvalidOperationException("Storage:TestDriveLetter is required.");;
+string prodDriveLetter = config["Storage:ProdDriveLetter"] ?? throw new InvalidOperationException("Storage:ProdDriveLetter is required."); ;
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -42,25 +40,21 @@ string GetRelativePart(string dbPath)
     if (normalized.StartsWith(drivePrefix + "\\", StringComparison.OrdinalIgnoreCase))
         return normalized.Substring(drivePrefix.Length).TrimStart('\\');
 
-    if (!string.IsNullOrEmpty(testNetworkBase)
-        && normalized.StartsWith(testNetworkBase, StringComparison.OrdinalIgnoreCase))
-        return normalized.Substring(testNetworkBase.Length).TrimStart('\\');
-
     // Unknown prefix – use the file name only to avoid unintended path traversal.
     return Path.GetFileName(normalized);
 }
 
 /// <summary>
-/// Maps a test DB file path to its actual file system path on the test network share.
+/// Maps a DB file path to the test file system by replacing the drive letter.
 /// </summary>
 string MapToTestFileSystem(string dbPath) =>
-    Path.Combine(testNetworkBase, GetRelativePart(dbPath));
+    testDriveLetter.TrimEnd(':') + ":\\" + GetRelativePart(dbPath);
 
 /// <summary>
-/// Maps a test DB file path to its destination path on the production network share.
+/// Maps a DB file path to the production file system by replacing the drive letter.
 /// </summary>
 string MapToProdFileSystem(string dbPath) =>
-    Path.Combine(prodNetworkBase, GetRelativePart(dbPath));
+    prodDriveLetter.TrimEnd(':') + ":\\" + GetRelativePart(dbPath);
 
 /// <summary>
 /// Maps a test DB file path to the drive-letter path that should be stored in
