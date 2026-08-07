@@ -100,14 +100,14 @@ if (selection == "3")
         }).ToList(),
         plan.OrphanedProdFiles);
 
-    int filesCopied = fileCopier.CopyFiles(testRunPlan);
-    int fileCopyErrors = testRunPlan.FilesToCopy - filesCopied;
+    int testRunFilesCopied = fileCopier.CopyFiles(testRunPlan);
+    int testRunFileCopyErrors = testRunPlan.FilesToCopy - testRunFilesCopied;
 
     logger.LogInformation(
         "Test file copy run complete. Files copied: {Files}, File copy errors: {FileCopyErrors}. No database changes were made.",
-        filesCopied, fileCopyErrors);
+        testRunFilesCopied, testRunFileCopyErrors);
 
-    if (fileCopyErrors > 0)
+    if (testRunFileCopyErrors > 0)
         Environment.Exit(1);
 
     return;
