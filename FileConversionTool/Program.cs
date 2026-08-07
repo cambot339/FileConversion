@@ -42,34 +42,42 @@ await using var prodCtx = new CustomerPortalContext(
 // ---------------------------------------------------------------------------
 // Compose services
 // ---------------------------------------------------------------------------
-var pathHelper       = new PathHelper(testDriveLetter, prodDriveLetter);
-var analyzer         = new PreCopyAnalyzer(testCtx, prodCtx, pathHelper, logger);
-var fileCopier       = new FileCopier(logger);
+var pathHelper = new PathHelper(testDriveLetter, prodDriveLetter);
+var analyzer = new PreCopyAnalyzer(testCtx, prodCtx, pathHelper, logger);
+var fileCopier = new FileCopier(logger);
 var databaseMigrator = new DatabaseMigrator(prodCtx, logger);
 
-// ---------------------------------------------------------------------------
-// Step 1 – Pre-copy analysis (read-only, no changes made)
-// ---------------------------------------------------------------------------
+Console.WriteLine("Choose run mode:");
+Console.WriteLine("  1) Test plan only (read-only analysis)");
+Console.WriteLine("  2) Full file copy and database update");
+Console.Write("Selection [1/2]: ");
+
+string? selection = Console.ReadLine()?.Trim();
+
+while (selection is not "1" and not "2")
+{
+    Console.Write("Invalid selection. Enter 1 or 2: ");
+    selection = Console.ReadLine()?.Trim();
+}
+
 logger.LogInformation("Starting file/database migration from TEST to PRODUCTION.");
 
 MigrationPlan plan = await analyzer.AnalyzeAsync();
 
-// ---------------------------------------------------------------------------
-// Step 2 – Copy files
-// ---------------------------------------------------------------------------
-int filesCopied = fileCopier.CopyFiles(plan);
+if (selection == "1")
+{
+    logger.LogInformation(
+        "Test plan complete. Files to copy: {Copy}, Missing files: {Missing}, Records to insert: {Insert}, Records to update: {Update}.",
+        plan.FilesToCopy, plan.MissingFiles, plan.RecordsToInsert, plan.RecordsToUpdate);
+    return;
+}
 
-// ---------------------------------------------------------------------------
-// Step 3 – Upsert database records
-// ---------------------------------------------------------------------------
+int filesCopied = fileCopier.CopyFiles(plan);
 int recordsUpserted = await databaseMigrator.UpsertRecordsAsync(plan);
 
-// ---------------------------------------------------------------------------
-// Summary
-// ---------------------------------------------------------------------------
 int fileCopyErrors = plan.FilesToCopy - filesCopied;
-int dbErrors       = plan.Items.Count - recordsUpserted;
-int errors         = fileCopyErrors + dbErrors;
+int dbErrors = plan.Items.Count - recordsUpserted;
+int errors = fileCopyErrors + dbErrors;
 
 logger.LogInformation(
     "Migration complete. Records upserted: {Upserted}, Files copied: {Files}, " +
