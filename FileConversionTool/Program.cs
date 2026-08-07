@@ -47,7 +47,8 @@ await using var prodCtx = new CustomerPortalContext(
 var pathHelper = new PathHelper(testDriveLetter, prodDriveLetter);
 var analyzer = new PreCopyAnalyzer(testCtx, prodCtx, pathHelper, logger);
 var fileCopier = new FileCopier(logger);
-var databaseMigrator = new DatabaseMigrator(prodCtx, logger);
+var thumbnailMigrator = new ThumbnailMigrator(prodCtx, logger);
+var databaseMigrator = new DatabaseMigrator(prodCtx, thumbnailMigrator, logger);
 
 Console.WriteLine("Choose run mode:");
 Console.WriteLine("  1) Test plan only (read-only analysis)");
@@ -99,6 +100,16 @@ if (selection == "3")
             RecordExistsInProd = item.RecordExistsInProd,
             MatchedProdRecordId = item.MatchedProdRecordId,
         }).ToList(),
+        plan.ThumbnailItems.Select(item => new ThumbnailMigrationItem
+        {
+            TestRecord = item.TestRecord,
+            SourceFilePath = item.SourceFilePath,
+            DestFilePath = pathHelper.MapToConfiguredRoot(item.TestRecord.FilePath, outputRoot),
+            ProdDbFilePath = item.ProdDbFilePath,
+            FileExists = item.FileExists,
+            RecordExistsInProd = item.RecordExistsInProd,
+            MatchedProdRecordId = item.MatchedProdRecordId,
+        }).ToList(),
         plan.OrphanedProdFiles);
 
     int testRunFilesCopied = fileCopier.CopyFiles(testRunPlan);
@@ -116,16 +127,20 @@ if (selection == "3")
 
 logger.LogInformation("Starting file/database migration from TEST to PRODUCTION.");
 int filesCopied = fileCopier.CopyFiles(plan);
-int recordsUpserted = await databaseMigrator.UpsertRecordsAsync(plan);
+DatabaseMigrationResult migrationResult = await databaseMigrator.UpsertRecordsAsync(plan);
 
 int fileCopyErrors = plan.FilesToCopy - filesCopied;
-int dbErrors = plan.Items.Count - recordsUpserted;
+int dbErrors = (plan.Items.Count + plan.ThumbnailItems.Count) - migrationResult.TotalRecordsUpserted;
 int errors = fileCopyErrors + dbErrors;
 
 logger.LogInformation(
-    "Migration complete. Records upserted: {Upserted}, Files copied: {Files}, " +
+    "Migration complete. ResourceDownload records upserted: {DownloadUpserted}, ResourceThumbnail records upserted: {ThumbnailUpserted}, Files copied: {Files}, " +
     "File copy errors: {FileCopyErrors}, DB errors: {DbErrors}",
-    recordsUpserted, filesCopied, fileCopyErrors, dbErrors);
+    migrationResult.ResourceDownloadRecordsUpserted,
+    migrationResult.ResourceThumbnailRecordsUpserted,
+    filesCopied,
+    fileCopyErrors,
+    dbErrors);
 
 if (errors > 0)
 {

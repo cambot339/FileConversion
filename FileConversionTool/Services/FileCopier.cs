@@ -40,6 +40,27 @@ public class FileCopier
             }
         }
 
+        foreach (ThumbnailMigrationItem item in plan.ThumbnailItems.Where(i => i.FileExists))
+        {
+            try
+            {
+                string? destDir = Path.GetDirectoryName(item.DestFilePath);
+                if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                {
+                    Directory.CreateDirectory(destDir);
+                    _logger.LogDebug("Created directory: {Dir}", destDir);
+                }
+
+                File.Copy(item.SourceFilePath, item.DestFilePath, overwrite: true);
+                _logger.LogInformation("Copied thumbnail file: {Src} -> {Dest}", item.SourceFilePath, item.DestFilePath);
+                copied++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to copy thumbnail file for record ID={ID}: {Message}", item.TestRecord.ID, ex.Message);
+            }
+        }
+
         return copied;
     }
 }

@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using PMC.Data.DF.CustomerPortal;
-using PMC.Data.DF.CustomerPortalOrchTest;
+using ProdResourceDownload = PMC.Data.DF.CustomerPortal.ResourceDownload;
+using ProdResourceThumbnail = PMC.Data.DF.CustomerPortal.ResourceThumbnail;
+using TestResourceDownload = PMC.Data.DF.CustomerPortalOrchTest.ResourceDownload;
+using TestResourceThumbnail = PMC.Data.DF.CustomerPortalOrchTest.ResourceThumbnail;
 
 namespace FileConversionTool.Services;
 
@@ -36,22 +38,36 @@ public class PreCopyAnalyzer
     public async Task<MigrationPlan> AnalyzeAsync()
     {
         _logger.LogInformation("Pre-copy analysis: reading test database...");
-        List<PMC.Data.DF.CustomerPortalOrchTest.ResourceDownload> testRecords =
+        List<TestResourceDownload> testRecords =
             await _testCtx.ResourceDownloads.AsNoTracking().ToListAsync();
+        List<TestResourceThumbnail> testThumbnailRecords =
+            await _testCtx.ResourceThumbnails.AsNoTracking().ToListAsync();
 
         _logger.LogInformation("Pre-copy analysis: found {Count} ResourceDownload record(s) in test database.", testRecords.Count);
+        _logger.LogInformation("Pre-copy analysis: found {Count} ResourceThumbnail record(s) in test database.", testThumbnailRecords.Count);
 
-        List<PMC.Data.DF.CustomerPortal.ResourceDownload> prodRecords = await _prodCtx.ResourceDownloads
+        List<ProdResourceDownload> prodRecords = await _prodCtx.ResourceDownloads
+            .AsNoTracking()
+            .ToListAsync();
+        List<ProdResourceThumbnail> prodThumbnailRecords = await _prodCtx.ResourceThumbnails
             .AsNoTracking()
             .ToListAsync();
 
         _logger.LogInformation("Pre-copy analysis: found {Count} existing ResourceDownload record(s) in production database.", prodRecords.Count);
+        _logger.LogInformation("Pre-copy analysis: found {Count} existing ResourceThumbnail record(s) in production database.", prodThumbnailRecords.Count);
 
-        Dictionary<string, List<PMC.Data.DF.CustomerPortal.ResourceDownload>> prodByFileName = prodRecords
+        Dictionary<string, List<ProdResourceDownload>> prodByFileName = prodRecords
             .GroupBy(r => Path.GetFileName(r.FilePath), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<ProdResourceThumbnail>> prodThumbnailsByName = prodThumbnailRecords
+            .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<ProdResourceThumbnail>> prodThumbnailsByFilePath = prodThumbnailRecords
+            .GroupBy(r => r.FilePath, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
         var items = new List<MigrationItem>(testRecords.Count);
+        var thumbnailItems = new List<ThumbnailMigrationItem>(testThumbnailRecords.Count);
 
         foreach (var testRecord in testRecords)
         {
@@ -64,12 +80,12 @@ public class PreCopyAnalyzer
                 _logger.LogWarning("Pre-copy analysis: source file not found for record ID={ID}: {Path}", testRecord.ID, sourceFilePath);
 
             string testFileName = Path.GetFileName(testRecord.FilePath);
-            prodByFileName.TryGetValue(testFileName, out List<PMC.Data.DF.CustomerPortal.ResourceDownload>? prodCandidates);
+            prodByFileName.TryGetValue(testFileName, out List<ProdResourceDownload>? prodCandidates);
 
-            PMC.Data.DF.CustomerPortal.ResourceDownload? matchedProdRecord = null;
+            ProdResourceDownload? matchedProdRecord = null;
             if (fileExists && prodCandidates is not null)
             {
-                foreach (PMC.Data.DF.CustomerPortal.ResourceDownload candidate in prodCandidates)
+                foreach (ProdResourceDownload candidate in prodCandidates)
                 {
                     string candidateProdPath = _pathHelper.MapToProdPath(candidate.FilePath);
                     if (!File.Exists(candidateProdPath))
@@ -95,8 +111,39 @@ public class PreCopyAnalyzer
             });
         }
 
+        foreach (var testThumbnailRecord in testThumbnailRecords)
+        {
+            string sourceFilePath = _pathHelper.MapToTestFileSystem(testThumbnailRecord.FilePath);
+            string destFilePath = _pathHelper.MapToProdPath(testThumbnailRecord.FilePath);
+            string prodDbFilePath = _pathHelper.MapToProdPath(testThumbnailRecord.FilePath);
+            bool fileExists = File.Exists(sourceFilePath);
+
+            if (!fileExists)
+                _logger.LogWarning("Pre-copy analysis: source thumbnail file not found for record ID={ID}: {Path}", testThumbnailRecord.ID, sourceFilePath);
+
+            ProdResourceThumbnail? matchedProdThumbnail = await FindMatchingThumbnailRecordAsync(
+                testThumbnailRecord,
+                sourceFilePath,
+                prodDbFilePath,
+                fileExists,
+                prodThumbnailsByName,
+                prodThumbnailsByFilePath);
+
+            thumbnailItems.Add(new ThumbnailMigrationItem
+            {
+                TestRecord = testThumbnailRecord,
+                SourceFilePath = sourceFilePath,
+                DestFilePath = destFilePath,
+                ProdDbFilePath = prodDbFilePath,
+                FileExists = fileExists,
+                RecordExistsInProd = matchedProdThumbnail is not null,
+                MatchedProdRecordId = matchedProdThumbnail?.ID,
+            });
+        }
+
         HashSet<string> expectedProdFiles = items
             .Select(item => item.DestFilePath)
+            .Concat(thumbnailItems.Select(item => item.DestFilePath))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         HashSet<string> directoriesToScan = expectedProdFiles
@@ -107,17 +154,72 @@ public class PreCopyAnalyzer
 
         List<string> orphanedProdFiles = FindOrphanedFiles(directoriesToScan, expectedProdFiles);
 
-        var plan = MigrationPlan.From(items, orphanedProdFiles);
+        var plan = MigrationPlan.From(items, thumbnailItems, orphanedProdFiles);
 
         _logger.LogInformation(
             "Pre-copy analysis complete. Files to copy: {Copy}, Missing files: {Missing}, " +
-            "Records to insert: {Insert}, Records to update: {Update}, Orphaned prod files: {Orphaned}.",
-            plan.FilesToCopy, plan.MissingFiles, plan.RecordsToInsert, plan.RecordsToUpdate, plan.OrphanedProdFileCount);
+            "ResourceDownload inserts: {DownloadInsert}, ResourceDownload updates: {DownloadUpdate}, " +
+            "ResourceThumbnail inserts: {ThumbnailInsert}, ResourceThumbnail updates: {ThumbnailUpdate}, " +
+            "Orphaned prod files: {Orphaned}.",
+            plan.FilesToCopy,
+            plan.MissingFiles,
+            plan.DownloadRecordsToInsert,
+            plan.DownloadRecordsToUpdate,
+            plan.ThumbnailRecordsToInsert,
+            plan.ThumbnailRecordsToUpdate,
+            plan.OrphanedProdFileCount);
 
         if (plan.OrphanedProdFileCount > 0)
             _logger.LogWarning("Pre-copy analysis: found {Count} orphaned production file(s) in scanned directories.", plan.OrphanedProdFileCount);
 
         return plan;
+    }
+
+    private async Task<ProdResourceThumbnail?> FindMatchingThumbnailRecordAsync(
+        TestResourceThumbnail testRecord,
+        string sourceFilePath,
+        string prodDbFilePath,
+        bool fileExists,
+        IReadOnlyDictionary<string, List<ProdResourceThumbnail>> prodThumbnailsByName,
+        IReadOnlyDictionary<string, List<ProdResourceThumbnail>> prodThumbnailsByFilePath)
+    {
+        var candidates = new List<ProdResourceThumbnail>();
+
+        if (prodThumbnailsByFilePath.TryGetValue(prodDbFilePath, out List<ProdResourceThumbnail>? filePathCandidates))
+            candidates.AddRange(filePathCandidates);
+
+        if (prodThumbnailsByName.TryGetValue(testRecord.Name, out List<ProdResourceThumbnail>? nameCandidates))
+        {
+            foreach (ProdResourceThumbnail candidate in nameCandidates)
+            {
+                if (candidates.All(existing => existing.ID != candidate.ID))
+                    candidates.Add(candidate);
+            }
+        }
+
+        if (candidates.Count == 0)
+            return null;
+
+        ProdResourceThumbnail? exactPathMatch = candidates.FirstOrDefault(candidate =>
+            string.Equals(candidate.FilePath, prodDbFilePath, StringComparison.OrdinalIgnoreCase));
+
+        if (exactPathMatch is not null)
+            return exactPathMatch;
+
+        if (fileExists)
+        {
+            foreach (ProdResourceThumbnail candidate in candidates)
+            {
+                string candidateProdPath = _pathHelper.MapToProdPath(candidate.FilePath);
+                if (!File.Exists(candidateProdPath))
+                    continue;
+
+                if (await FilesHaveSameContentsAsync(sourceFilePath, candidateProdPath))
+                    return candidate;
+            }
+        }
+
+        return candidates.Count == 1 ? candidates[0] : null;
     }
 
     private static List<string> FindOrphanedFiles(IReadOnlyCollection<string> directoriesToScan, IReadOnlySet<string> expectedProdFiles)

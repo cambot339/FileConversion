@@ -3,17 +3,26 @@ using PMC.Data.DF.CustomerPortal;
 
 namespace FileConversionTool.Services;
 
+public class DatabaseMigrationResult
+{
+    public int ResourceDownloadRecordsUpserted { get; init; }
+    public int ResourceThumbnailRecordsUpserted { get; init; }
+    public int TotalRecordsUpserted => ResourceDownloadRecordsUpserted + ResourceThumbnailRecordsUpserted;
+}
+
 /// <summary>
 /// Executes the database upserts described by a <see cref="MigrationPlan"/>.
 /// </summary>
 public class DatabaseMigrator
 {
     private readonly CustomerPortalContext _prodCtx;
+    private readonly ThumbnailMigrator _thumbnailMigrator;
     private readonly ILogger _logger;
 
-    public DatabaseMigrator(CustomerPortalContext prodCtx, ILogger logger)
+    public DatabaseMigrator(CustomerPortalContext prodCtx, ThumbnailMigrator thumbnailMigrator, ILogger logger)
     {
         _prodCtx = prodCtx;
+        _thumbnailMigrator = thumbnailMigrator;
         _logger = logger;
     }
 
@@ -22,8 +31,9 @@ public class DatabaseMigrator
     /// Each record is saved individually to isolate failures.
     /// Returns the number of records successfully upserted.
     /// </summary>
-    public async Task<int> UpsertRecordsAsync(MigrationPlan plan)
+    public async Task<DatabaseMigrationResult> UpsertRecordsAsync(MigrationPlan plan)
     {
+        ThumbnailMigrationResult thumbnailResult = await _thumbnailMigrator.UpsertRecordsAsync(plan);
         int upserted = 0;
 
         foreach (MigrationItem item in plan.Items)
@@ -42,7 +52,7 @@ public class DatabaseMigrator
                     existing.Description = item.TestRecord.Description;
                     existing.FilePath    = item.ProdDbFilePath;
                     existing.CategoryID  = item.TestRecord.CategoryID;
-                    existing.ThumbnailID = item.TestRecord.ThumbnailID;
+                    existing.ThumbnailID = ResolveThumbnailId(item.TestRecord.ThumbnailID, thumbnailResult.ThumbnailIdMap);
                     existing.FolderId    = item.TestRecord.FolderId;
 
                     _logger.LogInformation("Updating record ID={ID} ({Name})", prodRecordId, item.TestRecord.Name);
@@ -56,7 +66,7 @@ public class DatabaseMigrator
                         Description = item.TestRecord.Description,
                         FilePath    = item.ProdDbFilePath,
                         CategoryID  = item.TestRecord.CategoryID,
-                        ThumbnailID = item.TestRecord.ThumbnailID,
+                        ThumbnailID = ResolveThumbnailId(item.TestRecord.ThumbnailID, thumbnailResult.ThumbnailIdMap),
                         FolderId    = item.TestRecord.FolderId,
                     });
 
@@ -72,6 +82,22 @@ public class DatabaseMigrator
             }
         }
 
-        return upserted;
+        return new DatabaseMigrationResult
+        {
+            ResourceDownloadRecordsUpserted = upserted,
+            ResourceThumbnailRecordsUpserted = thumbnailResult.UpsertedCount,
+        };
+    }
+
+    private static int? ResolveThumbnailId(int? testThumbnailId, IReadOnlyDictionary<int, int> thumbnailIdMap)
+    {
+        if (!testThumbnailId.HasValue)
+            return null;
+
+        if (thumbnailIdMap.TryGetValue(testThumbnailId.Value, out int prodThumbnailId))
+            return prodThumbnailId;
+
+        throw new InvalidOperationException(
+            $"ResourceDownload references thumbnail ID={testThumbnailId.Value}, but no production thumbnail mapping was created.");
     }
 }
