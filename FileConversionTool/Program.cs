@@ -82,8 +82,11 @@ string MapToProdDbPath(string dbPath) =>
 /// </summary>
 string MapToTestRunFileSystem(string dbPath) =>
     Path.Combine(
-        testRunOutputPath!,
-        GetRelativePart(dbPath).Replace('\\', Path.DirectorySeparatorChar));
+        new[] { testRunOutputPath! }
+            .Concat(
+                GetRelativePart(dbPath)
+                    .Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+            .ToArray());
 
 // ---------------------------------------------------------------------------
 // Build EF contexts
