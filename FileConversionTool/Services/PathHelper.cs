@@ -20,13 +20,12 @@ public class PathHelper
     public string GetRelativePart(string dbPath)
     {
         string normalized = dbPath.Replace('/', '\\');
-        string drivePrefix = _testDriveLetter + ":";
+        string? root = Path.GetPathRoot(normalized);
 
-        if (normalized.StartsWith(drivePrefix + "\\", StringComparison.OrdinalIgnoreCase))
-            return normalized.Substring(drivePrefix.Length).TrimStart('\\');
+        if (string.IsNullOrWhiteSpace(root))
+            return normalized.TrimStart('\\');
 
-        // Unknown prefix – use the file name only to avoid unintended path traversal.
-        return Path.GetFileName(normalized);
+        return Path.GetRelativePath(root, normalized);
     }
 
     /// <summary>Maps a DB file path to an absolute path on the test file system.</summary>
