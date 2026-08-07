@@ -25,6 +25,7 @@ string testDriveLetter = config["Storage:TestDriveLetter"]
     ?? throw new InvalidOperationException("Storage:TestDriveLetter is required.");
 string prodDriveLetter = config["Storage:ProdDriveLetter"]
     ?? throw new InvalidOperationException("Storage:ProdDriveLetter is required.");
+string? testRunOutputDirectory = config["Storage:TestRunOutputDirectory"];
 
 // ---------------------------------------------------------------------------
 // Build EF contexts using the DF-generated classes
@@ -50,13 +51,14 @@ var databaseMigrator = new DatabaseMigrator(prodCtx, logger);
 Console.WriteLine("Choose run mode:");
 Console.WriteLine("  1) Test plan only (read-only analysis)");
 Console.WriteLine("  2) Full file copy and database update");
-Console.Write("Selection [1/2]: ");
+Console.WriteLine("  3) Test file copy to configured directory (no DB updates)");
+Console.Write("Selection [1/2/3]: ");
 
 string? selection = Console.ReadLine()?.Trim();
 
-while (selection is not "1" and not "2")
+while (selection is not "1" and not "2" and not "3")
 {
-    Console.Write("Invalid selection. Enter 1 or 2: ");
+    Console.Write("Invalid selection. Enter 1, 2, or 3: ");
     selection = Console.ReadLine()?.Trim();
 }
 
@@ -73,6 +75,40 @@ if (selection == "1")
         foreach (string orphanedFile in plan.OrphanedProdFiles)
             logger.LogWarning("  {Path}", orphanedFile);
     }
+
+    return;
+}
+
+if (selection == "3")
+{
+    if (string.IsNullOrWhiteSpace(testRunOutputDirectory))
+        throw new InvalidOperationException("Storage:TestRunOutputDirectory is required for run mode 3.");
+
+    string outputRoot = Path.GetFullPath(testRunOutputDirectory);
+    logger.LogInformation("Starting test file copy run to {OutputRoot}. Production database will not be modified.", outputRoot);
+
+    MigrationPlan testRunPlan = MigrationPlan.From(
+        plan.Items.Select(item => new MigrationItem
+        {
+            TestRecord = item.TestRecord,
+            SourceFilePath = item.SourceFilePath,
+            DestFilePath = pathHelper.MapToConfiguredRoot(item.TestRecord.FilePath, outputRoot),
+            ProdDbFilePath = item.ProdDbFilePath,
+            FileExists = item.FileExists,
+            RecordExistsInProd = item.RecordExistsInProd,
+            MatchedProdRecordId = item.MatchedProdRecordId,
+        }).ToList(),
+        plan.OrphanedProdFiles);
+
+    int filesCopied = fileCopier.CopyFiles(testRunPlan);
+    int fileCopyErrors = testRunPlan.FilesToCopy - filesCopied;
+
+    logger.LogInformation(
+        "Test file copy run complete. Files copied: {Files}, File copy errors: {FileCopyErrors}. No database changes were made.",
+        filesCopied, fileCopyErrors);
+
+    if (fileCopyErrors > 0)
+        Environment.Exit(1);
 
     return;
 }

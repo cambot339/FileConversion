@@ -38,4 +38,18 @@ public class PathHelper
     /// </summary>
     public string MapToProdPath(string dbPath) =>
         _prodDriveLetter + ":\\" + GetRelativePart(dbPath);
+
+    /// <summary>
+    /// Maps a DB file path into a configured root directory while preserving the relative subpath.
+    /// </summary>
+    public string MapToConfiguredRoot(string dbPath, string rootPath)
+    {
+        string relative = GetRelativePart(dbPath);
+        string[] pathParts = relative
+            .Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+
+        return pathParts.Length == 0
+            ? rootPath
+            : Path.Combine([rootPath, .. pathParts]);
+    }
 }
