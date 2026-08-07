@@ -60,18 +60,24 @@ while (selection is not "1" and not "2")
     selection = Console.ReadLine()?.Trim();
 }
 
-logger.LogInformation("Starting file/database migration from TEST to PRODUCTION.");
 
+logger.LogInformation("Building migration plan from TEST to PRODUCTION.");
 MigrationPlan plan = await analyzer.AnalyzeAsync();
+
 
 if (selection == "1")
 {
-    logger.LogInformation(
-        "Test plan complete. Files to copy: {Copy}, Missing files: {Missing}, Records to insert: {Insert}, Records to update: {Update}.",
-        plan.FilesToCopy, plan.MissingFiles, plan.RecordsToInsert, plan.RecordsToUpdate);
+    if (plan.OrphanedProdFileCount > 0)
+    {
+        logger.LogWarning("Potential orphaned production files that could be deleted:");
+        foreach (string orphanedFile in plan.OrphanedProdFiles)
+            logger.LogWarning("  {Path}", orphanedFile);
+    }
+
     return;
 }
 
+logger.LogInformation("Starting file/database migration from TEST to PRODUCTION.");
 int filesCopied = fileCopier.CopyFiles(plan);
 int recordsUpserted = await databaseMigrator.UpsertRecordsAsync(plan);
 

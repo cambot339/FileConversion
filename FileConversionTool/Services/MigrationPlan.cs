@@ -22,8 +22,11 @@ public class MigrationItem
     /// <summary>Whether the source file exists and should be physically copied.</summary>
     public required bool FileExists { get; init; }
 
-    /// <summary>Whether a record with this ID already exists in the production database.</summary>
+    /// <summary>Whether a matching production record (filename + same file content) already exists.</summary>
     public required bool RecordExistsInProd { get; init; }
+
+    /// <summary>The matched production record ID when <see cref="RecordExistsInProd"/> is true.</summary>
+    public int? MatchedProdRecordId { get; init; }
 }
 
 /// <summary>
@@ -32,28 +35,19 @@ public class MigrationItem
 public class MigrationPlan
 {
     public IReadOnlyList<MigrationItem> Items { get; init; } = [];
+    public IReadOnlyList<string> OrphanedProdFiles { get; init; } = [];
 
-    public int FilesToCopy { get; init; }
-    public int MissingFiles { get; init; }
-    public int RecordsToInsert { get; init; }
-    public int RecordsToUpdate { get; init; }
+    public int FilesToCopy => Items.Count(item => item.FileExists);
+    public int MissingFiles => Items.Count(item => !item.FileExists);
+    public int RecordsToInsert => Items.Count(item => !item.RecordExistsInProd);
+    public int RecordsToUpdate => Items.Count(item => item.RecordExistsInProd);
+    public int OrphanedProdFileCount => OrphanedProdFiles.Count;
 
-    /// <summary>Builds a <see cref="MigrationPlan"/> from a list of items, computing all counts in a single pass.</summary>
-    public static MigrationPlan From(IReadOnlyList<MigrationItem> items)
-    {
-        int filesToCopy = 0, missingFiles = 0, toInsert = 0, toUpdate = 0;
-        foreach (var item in items)
-        {
-            if (item.FileExists) filesToCopy++; else missingFiles++;
-            if (item.RecordExistsInProd) toUpdate++; else toInsert++;
-        }
-        return new MigrationPlan
+    /// <summary>Builds a <see cref="MigrationPlan"/> from a list of items.</summary>
+    public static MigrationPlan From(IReadOnlyList<MigrationItem> items, IReadOnlyList<string>? orphanedProdFiles = null) =>
+        new()
         {
             Items = items,
-            FilesToCopy = filesToCopy,
-            MissingFiles = missingFiles,
-            RecordsToInsert = toInsert,
-            RecordsToUpdate = toUpdate,
+            OrphanedProdFiles = orphanedProdFiles ?? [],
         };
-    }
 }

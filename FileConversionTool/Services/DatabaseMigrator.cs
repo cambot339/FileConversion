@@ -32,8 +32,11 @@ public class DatabaseMigrator
             {
                 if (item.RecordExistsInProd)
                 {
-                    ResourceDownload existing = await _prodCtx.ResourceDownloads.FindAsync(item.TestRecord.ID)
-                        ?? throw new InvalidOperationException($"Record ID={item.TestRecord.ID} was expected but not found.");
+                    int prodRecordId = item.MatchedProdRecordId
+                        ?? throw new InvalidOperationException($"A matched production record ID is required for test record ID={item.TestRecord.ID}.");
+
+                    ResourceDownload existing = await _prodCtx.ResourceDownloads.FindAsync(prodRecordId)
+                        ?? throw new InvalidOperationException($"Record ID={prodRecordId} was expected but not found.");
 
                     existing.Name        = item.TestRecord.Name;
                     existing.Description = item.TestRecord.Description;
@@ -42,7 +45,7 @@ public class DatabaseMigrator
                     existing.ThumbnailID = item.TestRecord.ThumbnailID;
                     existing.FolderId    = item.TestRecord.FolderId;
 
-                    _logger.LogInformation("Updating record ID={ID} ({Name})", item.TestRecord.ID, item.TestRecord.Name);
+                    _logger.LogInformation("Updating record ID={ID} ({Name})", prodRecordId, item.TestRecord.Name);
                 }
                 else
                 {
