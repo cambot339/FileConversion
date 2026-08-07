@@ -11,6 +11,7 @@ using PMC.Data.DF.CustomerPortalOrchTest;
 IConfiguration config = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+    .AddJsonFile("appsettings.testrun.json", optional: true, reloadOnChange: false)
     .Build();
 
 using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.AddConsole());
@@ -82,7 +83,7 @@ if (selection == "1")
 if (selection == "3")
 {
     if (string.IsNullOrWhiteSpace(testRunOutputDirectory))
-        throw new InvalidOperationException("Storage:TestRunOutputDirectory is required for run mode 3.");
+        throw new InvalidOperationException("Storage:TestRunOutputDirectory is required for run mode 3. Configure it in appsettings.testrun.json or appsettings.json.");
 
     string outputRoot = Path.GetFullPath(testRunOutputDirectory);
     logger.LogInformation("Starting test file copy run to {OutputRoot}. Production database will not be modified.", outputRoot);
