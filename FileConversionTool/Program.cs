@@ -53,13 +53,14 @@ Console.WriteLine("Choose run mode:");
 Console.WriteLine("  1) Test plan only (read-only analysis)");
 Console.WriteLine("  2) Full file copy and database update");
 Console.WriteLine("  3) Test file copy to configured directory (no DB updates)");
-Console.Write("Selection [1/2/3]: ");
+Console.WriteLine("  4) Analyze and back-copy missing test files from production storage");
+Console.Write("Selection [1/2/3/4]: ");
 
 string? selection = Console.ReadLine()?.Trim();
 
-while (selection is not "1" and not "2" and not "3")
+while (selection is not "1" and not "2" and not "3" and not "4")
 {
-    Console.Write("Invalid selection. Enter 1, 2, or 3: ");
+    Console.Write("Invalid selection. Enter 1, 2, 3, or 4: ");
     selection = Console.ReadLine()?.Trim();
 }
 
@@ -70,12 +71,38 @@ MigrationPlan plan = await analyzer.AnalyzeAsync();
 
 if (selection == "1")
 {
+    logger.LogInformation("Files available to back-copy from production to test storage: {Count}", plan.FilesAvailableToBackCopy);
+
     if (plan.OrphanedProdFileCount > 0)
     {
         logger.LogWarning("Potential orphaned production files that could be deleted:");
         foreach (string orphanedFile in plan.OrphanedProdFiles)
             logger.LogWarning("  {Path}", orphanedFile);
     }
+
+    return;
+}
+
+if (selection == "4")
+{
+    MigrationPlan backCopyPlan = plan.CreateBackCopyPlan();
+
+    if (backCopyPlan.Items.Count == 0)
+    {
+        logger.LogInformation("No missing test files were found in production storage to back-copy.");
+        return;
+    }
+
+    logger.LogInformation("Starting back-copy from production storage to test storage.");
+    int backCopied = fileCopier.CopyFiles(backCopyPlan);
+    int backCopyErrors = backCopyPlan.FilesToCopy - backCopied;
+
+    logger.LogInformation(
+        "Back-copy complete. Files restored to test storage: {Files}, Back-copy errors: {BackCopyErrors}.",
+        backCopied, backCopyErrors);
+
+    if (backCopyErrors > 0)
+        Environment.Exit(1);
 
     return;
 }
@@ -96,6 +123,7 @@ if (selection == "3")
             DestFilePath = pathHelper.MapToConfiguredRoot(item.TestRecord.FilePath, outputRoot),
             ProdDbFilePath = item.ProdDbFilePath,
             FileExists = item.FileExists,
+            ProductionFileExists = item.ProductionFileExists,
             RecordExistsInProd = item.RecordExistsInProd,
             MatchedProdRecordId = item.MatchedProdRecordId,
         }).ToList(),

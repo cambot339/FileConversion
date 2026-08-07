@@ -59,6 +59,7 @@ public class PreCopyAnalyzer
             string destFilePath = _pathHelper.MapToProdPath(testRecord.FilePath);
             string prodDbFilePath = _pathHelper.MapToProdPath(testRecord.FilePath);
             bool fileExists = File.Exists(sourceFilePath);
+            bool productionFileExists = File.Exists(destFilePath);
 
             if (!fileExists)
                 _logger.LogWarning("Pre-copy analysis: source file not found for record ID={ID}: {Path}", testRecord.ID, sourceFilePath);
@@ -90,6 +91,7 @@ public class PreCopyAnalyzer
                 DestFilePath = destFilePath,
                 ProdDbFilePath = prodDbFilePath,
                 FileExists = fileExists,
+                ProductionFileExists = productionFileExists,
                 RecordExistsInProd = matchedProdRecord is not null,
                 MatchedProdRecordId = matchedProdRecord?.ID,
             });
@@ -111,8 +113,10 @@ public class PreCopyAnalyzer
 
         _logger.LogInformation(
             "Pre-copy analysis complete. Files to copy: {Copy}, Missing files: {Missing}, " +
-            "Records to insert: {Insert}, Records to update: {Update}, Orphaned prod files: {Orphaned}.",
-            plan.FilesToCopy, plan.MissingFiles, plan.RecordsToInsert, plan.RecordsToUpdate, plan.OrphanedProdFileCount);
+            "Files available to back-copy: {BackCopy}, Records to insert: {Insert}, " +
+            "Records to update: {Update}, Orphaned prod files: {Orphaned}.",
+            plan.FilesToCopy, plan.MissingFiles, plan.FilesAvailableToBackCopy,
+            plan.RecordsToInsert, plan.RecordsToUpdate, plan.OrphanedProdFileCount);
 
         if (plan.OrphanedProdFileCount > 0)
             _logger.LogWarning("Pre-copy analysis: found {Count} orphaned production file(s) in scanned directories.", plan.OrphanedProdFileCount);
