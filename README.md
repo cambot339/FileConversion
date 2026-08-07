@@ -1,5 +1,5 @@
 # FileConversion
-Utility to copy changes made on test website to produciton site and storage 
+Utility to copy changes made on test website to production site and storage 
 
 ## Test run mode
 

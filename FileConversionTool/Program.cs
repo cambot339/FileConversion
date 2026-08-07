@@ -101,11 +101,14 @@ DbContextOptions<AppDbContext>? prodOptions = isTestRun
 // ---------------------------------------------------------------------------
 // Main migration logic
 // ---------------------------------------------------------------------------
-logger.LogInformation(
-    isTestRun
-        ? "Starting TEST RUN migration. Files will be copied to {OutputPath} and production DB will not be modified."
-        : "Starting file/database migration from TEST to PRODUCTION.",
-    testRunOutputPath);
+if (isTestRun)
+{
+    logger.LogInformation("Starting TEST RUN migration. Files will be copied to {OutputPath} and production DB will not be modified.", testRunOutputPath);
+}
+else
+{
+    logger.LogInformation("Starting file/database migration from TEST to PRODUCTION.");
+}
 
 await using var testCtx = new AppDbContext(testOptions);
 await using AppDbContext? prodCtx = isTestRun ? null : new AppDbContext(prodOptions!);
