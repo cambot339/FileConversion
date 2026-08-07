@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ProdContext = PMC.Data.DF.CustomerPortal.CustomerPortalContext;
 using ProdResourceDownload = PMC.Data.DF.CustomerPortal.ResourceDownload;
 using ProdResourceThumbnail = PMC.Data.DF.CustomerPortal.ResourceThumbnail;
+using TestContext = PMC.Data.DF.CustomerPortalOrchTest.CustomerPortalOrchTestContext;
 using TestResourceDownload = PMC.Data.DF.CustomerPortalOrchTest.ResourceDownload;
 using TestResourceThumbnail = PMC.Data.DF.CustomerPortalOrchTest.ResourceThumbnail;
 
@@ -13,14 +15,14 @@ namespace FileConversionTool.Services;
 /// </summary>
 public class PreCopyAnalyzer
 {
-    private readonly CustomerPortalOrchTestContext _testCtx;
-    private readonly CustomerPortalContext _prodCtx;
+    private readonly TestContext _testCtx;
+    private readonly ProdContext _prodCtx;
     private readonly PathHelper _pathHelper;
     private readonly ILogger _logger;
 
     public PreCopyAnalyzer(
-        CustomerPortalOrchTestContext testCtx,
-        CustomerPortalContext prodCtx,
+        TestContext testCtx,
+        ProdContext prodCtx,
         PathHelper pathHelper,
         ILogger logger)
     {
