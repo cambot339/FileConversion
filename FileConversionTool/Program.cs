@@ -1,8 +1,9 @@
-using FileConversionTool.Data;
-using FileConversionTool.Models;
+using FileConversionTool.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using PMC.Data.DF.CustomerPortal;
+using PMC.Data.DF.CustomerPortalOrchTest;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -20,146 +21,60 @@ string testConnStr = config["TestDatabase:ConnectionString"]
 string prodConnStr = config["ProductionDatabase:ConnectionString"]
     ?? throw new InvalidOperationException("ProductionDatabase:ConnectionString is required.");
 
-string testDriveLetter = config["Storage:TestDriveLetter"]?? throw new InvalidOperationException("Storage:TestDriveLetter is required.");;
-string prodDriveLetter = config["Storage:ProdDriveLetter"] ?? throw new InvalidOperationException("Storage:ProdDriveLetter is required."); ;
+string testDriveLetter = config["Storage:TestDriveLetter"]
+    ?? throw new InvalidOperationException("Storage:TestDriveLetter is required.");
+string prodDriveLetter = config["Storage:ProdDriveLetter"]
+    ?? throw new InvalidOperationException("Storage:ProdDriveLetter is required.");
 
 // ---------------------------------------------------------------------------
-// Path helpers
+// Build EF contexts using the DF-generated classes
 // ---------------------------------------------------------------------------
+await using var testCtx = new CustomerPortalOrchTestContext(
+    new DbContextOptionsBuilder<CustomerPortalOrchTestContext>()
+        .UseSqlServer(testConnStr)
+        .Options);
 
-/// <summary>
-/// Extracts the relative portion of a path that was stored in the test DB.
-/// The test DB stores paths with a mapped drive letter (e.g. T:\folder\file.pdf)
-/// or optionally already as UNC paths.
-/// </summary>
-string GetRelativePart(string dbPath)
-{
-    string normalized = dbPath.Replace('/', '\\');
-    string drivePrefix = testDriveLetter.TrimEnd(':') + ":";
-
-    if (normalized.StartsWith(drivePrefix + "\\", StringComparison.OrdinalIgnoreCase))
-        return normalized.Substring(drivePrefix.Length).TrimStart('\\');
-
-    // Unknown prefix – use the file name only to avoid unintended path traversal.
-    return Path.GetFileName(normalized);
-}
-
-/// <summary>
-/// Maps a DB file path to the test file system by replacing the drive letter.
-/// </summary>
-string MapToTestFileSystem(string dbPath) =>
-    testDriveLetter.TrimEnd(':') + ":\\" + GetRelativePart(dbPath);
-
-/// <summary>
-/// Maps a DB file path to the production file system by replacing the drive letter.
-/// </summary>
-string MapToProdFileSystem(string dbPath) =>
-    prodDriveLetter.TrimEnd(':') + ":\\" + GetRelativePart(dbPath);
-
-/// <summary>
-/// Maps a test DB file path to the drive-letter path that should be stored in
-/// the production database (e.g. P:\folder\file.pdf).
-/// </summary>
-string MapToProdDbPath(string dbPath) =>
-    prodDriveLetter.TrimEnd(':') + ":\\" + GetRelativePart(dbPath);
+await using var prodCtx = new CustomerPortalContext(
+    new DbContextOptionsBuilder<CustomerPortalContext>()
+        .UseSqlServer(prodConnStr)
+        .Options);
 
 // ---------------------------------------------------------------------------
-// Build EF contexts
+// Compose services
 // ---------------------------------------------------------------------------
-DbContextOptions<AppDbContext> testOptions = new DbContextOptionsBuilder<AppDbContext>()
-    .UseSqlServer(testConnStr)
-    .Options;
-
-DbContextOptions<AppDbContext> prodOptions = new DbContextOptionsBuilder<AppDbContext>()
-    .UseSqlServer(prodConnStr)
-    .Options;
+var pathHelper       = new PathHelper(testDriveLetter, prodDriveLetter);
+var analyzer         = new PreCopyAnalyzer(testCtx, prodCtx, pathHelper, logger);
+var fileCopier       = new FileCopier(logger);
+var databaseMigrator = new DatabaseMigrator(prodCtx, logger);
 
 // ---------------------------------------------------------------------------
-// Main migration logic
+// Step 1 – Pre-copy analysis (read-only, no changes made)
 // ---------------------------------------------------------------------------
 logger.LogInformation("Starting file/database migration from TEST to PRODUCTION.");
 
-await using var testCtx = new AppDbContext(testOptions);
-await using var prodCtx = new AppDbContext(prodOptions);
+MigrationPlan plan = await analyzer.AnalyzeAsync();
 
-List<ResourceDownload> testRecords = await testCtx.ResourceDownloads.AsNoTracking().ToListAsync();
-logger.LogInformation("Found {Count} ResourceDownload record(s) in the test database.", testRecords.Count);
+// ---------------------------------------------------------------------------
+// Step 2 – Copy files
+// ---------------------------------------------------------------------------
+int filesCopied = fileCopier.CopyFiles(plan);
 
-int filesCopied = 0;
-int recordsUpserted = 0;
-int errors = 0;
+// ---------------------------------------------------------------------------
+// Step 3 – Upsert database records
+// ---------------------------------------------------------------------------
+int recordsUpserted = await databaseMigrator.UpsertRecordsAsync(plan);
 
-foreach (ResourceDownload testRecord in testRecords)
-{
-    try
-    {
-        // --- File copy -------------------------------------------------------
-        string sourceFilePath = MapToTestFileSystem(testRecord.FilePath);
-        string destFilePath   = MapToProdFileSystem(testRecord.FilePath);
-
-        string? destDir = Path.GetDirectoryName(destFilePath);
-        if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
-        {
-            Directory.CreateDirectory(destDir);
-            logger.LogDebug("Created directory: {Dir}", destDir);
-        }
-
-        if (File.Exists(sourceFilePath))
-        {
-            File.Copy(sourceFilePath, destFilePath, overwrite: true);
-            logger.LogInformation("Copied file: {Src} -> {Dest}", sourceFilePath, destFilePath);
-            filesCopied++;
-        }
-        else
-        {
-            logger.LogWarning("Source file not found, skipping copy: {Src}", sourceFilePath);
-        }
-
-        // --- Database upsert -------------------------------------------------
-        string prodFilePath = MapToProdDbPath(testRecord.FilePath);
-
-        ResourceDownload? existing = await prodCtx.ResourceDownloads
-            .FirstOrDefaultAsync(r => r.ID == testRecord.ID);
-
-        if (existing is null)
-        {
-            prodCtx.ResourceDownloads.Add(new ResourceDownload
-            {
-                ID          = testRecord.ID,
-                Name        = testRecord.Name,
-                Description = testRecord.Description,
-                FilePath    = prodFilePath,
-                CategoryID  = testRecord.CategoryID,
-                ThumbnailID = testRecord.ThumbnailID,
-                FolderId    = testRecord.FolderId,
-            });
-            logger.LogInformation("Inserting record ID={ID} ({Name})", testRecord.ID, testRecord.Name);
-        }
-        else
-        {
-            existing.Name        = testRecord.Name;
-            existing.Description = testRecord.Description;
-            existing.FilePath    = prodFilePath;
-            existing.CategoryID  = testRecord.CategoryID;
-            existing.ThumbnailID = testRecord.ThumbnailID;
-            existing.FolderId    = testRecord.FolderId;
-            logger.LogInformation("Updating record ID={ID} ({Name})", testRecord.ID, testRecord.Name);
-        }
-
-        // Save per-record to isolate failures and avoid partial batches.
-        await prodCtx.SaveChangesAsync();
-        recordsUpserted++;
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Error processing record ID={ID}: {Message}", testRecord.ID, ex.Message);
-        errors++;
-    }
-}
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+int fileCopyErrors = plan.FilesToCopy - filesCopied;
+int dbErrors       = plan.Items.Count - recordsUpserted;
+int errors         = fileCopyErrors + dbErrors;
 
 logger.LogInformation(
-    "Migration complete. Records upserted: {Upserted}, Files copied: {Files}, Errors: {Errors}",
-    recordsUpserted, filesCopied, errors);
+    "Migration complete. Records upserted: {Upserted}, Files copied: {Files}, " +
+    "File copy errors: {FileCopyErrors}, DB errors: {DbErrors}",
+    recordsUpserted, filesCopied, fileCopyErrors, dbErrors);
 
 if (errors > 0)
 {
